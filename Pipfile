@@ -1,0 +1,22 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+ipdb = "*"
+flake8 = "*"
+rope = "*"
+
+[packages]
+dacite = "*"
+pyyaml = "*"
+pandas = "*"
+plotly = "*"
+
+[requires]
+python_version = "3.7"
+
+[scripts]
+harness = "python -m harness.main"
+debug = "python -m ipdb harness/main.py"

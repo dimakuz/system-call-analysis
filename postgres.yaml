@@ -1,0 +1,9 @@
+container:
+  image: postgres
+  env:
+    POSTGRES_PASSWORD: somepassword
+  setup_commands:
+    - pgbench -U postgres -s 100 -i
+  test_commands:
+    - pgbench -U postgres -j 50 -T 5
+bpftrace_script: 'bpftrace/syscall-intervals-3.bt'
