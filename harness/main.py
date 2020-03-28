@@ -54,7 +54,12 @@ def get_bfptrace_output(run_info, path):
             podman.execute(cont, shlex.split(command))
         uid = discover_workload_uid(cont)
         with subprocess.Popen(
-            ('sudo', 'bpftrace', '-o', path, run_info.bpftrace_script, str(uid)),
+            (
+                'sudo',
+                'bpftrace',
+                '-o', path, run_info.bpftrace_script,
+                str(uid)
+            ),
             preexec_fn=os.setpgrp,
             stderr=subprocess.DEVNULL,
         ) as proc:
@@ -62,8 +67,8 @@ def get_bfptrace_output(run_info, path):
                 LOG.debug('Running test command: %s', command)
                 podman.execute(cont, shlex.split(command))
 
-            # sudo processes require special measures, as sudo won't relay signal
-            # if command was not started on a pty
+            # sudo processes require special measures, as sudo won't relay
+            # signal if command was not started on a pty
             # FIXME later to avoid killing other tracers
             subprocess.run(('sudo', 'pkill', 'bpftrace'), check=True)
             proc.wait()

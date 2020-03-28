@@ -4,7 +4,6 @@ See podman man-pages for specifics on each of the verbs.
 '''
 
 import contextlib
-import json
 import logging
 import subprocess
 
@@ -46,7 +45,7 @@ def create(image, command=(), name=(), env=None):
         env_args = []
         for k, v in env.items():
             env_args.extend(('-e', f'{k}={v}'))
-    
+
     res = _podman(
         'run',
         '--detach',
@@ -77,6 +76,7 @@ def copy_in(name, host_path, container_path):
         host_path,
         f'{name}:{container_path}',
     )
+
 
 def top(name, *fields):
     return _podman(

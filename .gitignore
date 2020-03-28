@@ -1,2 +1,4 @@
 __pycache__
+contrib/get_cgroupid
 .ccls
+.vscode
