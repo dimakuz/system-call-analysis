@@ -32,14 +32,12 @@ class SyscallInvocation:
     userspace_before: int = -1
     userspace_after: int = -1
     ustack: typing.Tuple[str] = None
+    end_ns: int = -1
+    syscall_loc: typing.Tuple[Syscall, int] = None
 
-    @property
-    def end_ns(self):
-        return self.start_ns + self.duration_ns
-
-    @property
-    def syscall_loc(self):
-        return (self.syscall, self.ustack_id)
+    def __post_init__(self):
+        self.end_ns = self.start_ns + self.duration_ns
+        self.syscall_loc = (self.syscall, self.ustack_id)
 
 
 @dataclasses.dataclass

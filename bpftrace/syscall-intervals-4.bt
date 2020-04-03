@@ -1,6 +1,6 @@
 BEGIN
 {
-    printf("tbegin,dur,sysnr,tid,ustack\n");
+    printf("tbegin,dur,sysnr,tid,ustack,comm\n");
     @start = nsecs;
     @stack_counter = 1;
 }

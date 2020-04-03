@@ -36,7 +36,7 @@ def running_container(image, **kwargs):
         remove(name)
 
 
-def create(image, command=(), name=(), env=None):
+def create(image, command=(), name=(), env=None, extra_args=()):
     if name:
         name = ('--name', name)
     if env is None:
@@ -49,6 +49,7 @@ def create(image, command=(), name=(), env=None):
     res = _podman(
         'run',
         '--detach',
+        *extra_args,
         *env_args,
         *name,
         image,

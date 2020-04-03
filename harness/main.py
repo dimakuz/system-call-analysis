@@ -28,9 +28,19 @@ LOG = logging.getLogger(__name__)
 @dataclasses.dataclass
 class Container:
     image: str
-    env: typing.Dict[str, str]
-    setup_commands: typing.List[str]
     test_commands: typing.List[str]
+    command: typing.List[str] = dataclasses.field(
+        default_factory=list,
+    )
+    extra_args: typing.List[str] = dataclasses.field(
+        default_factory=list,
+    )
+    env: typing.Dict[str, str] = dataclasses.field(
+        default_factory=dict,
+    )
+    setup_commands: typing.List[str] = dataclasses.field(
+        default_factory=list,
+    )
 
 
 @dataclasses.dataclass
@@ -57,6 +67,8 @@ def get_bfptrace_output(run_info, output_dir):
     with podman.running_container(
         run_info.container.image,
         env=run_info.container.env,
+        command=run_info.container.command,
+        extra_args=run_info.container.extra_args,
     ) as cont:
         # FIXME check that container is ready
         time.sleep(3)
@@ -71,6 +83,7 @@ def get_bfptrace_output(run_info, output_dir):
                 subprocess.Popen(
                     (
                         'sudo',
+                        '-E',
                         'bpftrace',
                         '-f', ti.output_format,
                         '-o', output_dir / ti.output_filename,
@@ -78,6 +91,7 @@ def get_bfptrace_output(run_info, output_dir):
                         str(uid)
                     ),
                     preexec_fn=os.setpgrp,
+                    env={'BPFTRACE_MAP_KEYS_MAX': '8192'},
                     # stderr=subprocess.DEVNULL,
                 ),
             )
@@ -175,7 +189,6 @@ def run(run_info, plot_path):
 
 
 def produce_bpftrace_output(opts):
-    logging.basicConfig(level=logging.DEBUG)
     with open(opts.spec) as f:
         run_info = dacite.from_dict(RunInfo, yaml.safe_load(f))
     os.makedirs(opts.output, exist_ok=True)
@@ -242,7 +255,7 @@ class Node:
 def stack_graph(thread):
     nodes = {}
     for stack in thread.ustacks.values():
-        print('->'.join(s[-5:] for s in stack))
+        # print('->'.join(s[-5:] for s in stack))
         for frame in stack:
             nodes[frame] = Node([frame], set(), set())
 
@@ -250,9 +263,8 @@ def stack_graph(thread):
         for ftop, fbot in zip(stack, stack[1:]):
             nodes[ftop].in_edges.add(fbot)
             nodes[fbot].out_edges.add(ftop)
-    while True:
-        if not compress_one_edge(nodes):
-            break
+    while compress_one_edge(nodes):
+        pass
     return nodes
 
 
@@ -306,18 +318,27 @@ def _inv_node(inv):
     return f'{inv.syscall.name}-{inv.ustack_id}'
 
 
-def build_thread_graph(thread, draw_userspace=True):
+def build_thread_graph(thread, draw_userspace=True, span_pred=None):
     dot = graphviz.Digraph(strict=True)
     nodes = stack_graph(thread)
+    LOG.debug('Constructed stack graph of size %d', len(nodes))
     drawn_userspace = set()
 
-    for ((s1, u1), (s2, u2)), info in thread.userspace_spans.items():
+    nr_spans = len(thread.userspace_spans)
+    LOG.debug("Thread has %d spans", nr_spans)
+    for i, (((s1, u1), (s2, u2)), info) in enumerate(
+        thread.userspace_spans.items(),
+    ):
         i1, i2 = info.pairs[0]
-        if len(info.pairs) < 1000:
+        if span_pred is not None and not span_pred(info):
             continue
         quantiles = info.quantiles()
-        if quantiles[0] > 100000:
-            continue
+
+        LOG.debug(
+            '[%d/%d] Processing span %r %r (%d)',
+            i + 1, nr_spans,
+            (s1, u1), (s2, u2), len(info.pairs),
+        )
 
         for inv in (i1, i2):
             median_duration = statistics.median(
@@ -335,6 +356,8 @@ def build_thread_graph(thread, draw_userspace=True):
                 label=label,
             )
             if draw_userspace:
+                us_node = None
+                LOG.debug('stack trace is %r', inv.ustack)
                 for frame in inv.ustack[::-1]:
                     us_node = next(
                         n for n in nodes.values() if frame in n.value
@@ -344,10 +367,13 @@ def build_thread_graph(thread, draw_userspace=True):
                     )
                     drawn_userspace.add(us_node.key)
 
-                dot.edge(
-                    us_node.pretty_name,
-                    _inv_node(inv),
-                )
+                if us_node is not None:
+                    LOG.debug(us_node.value)
+                    LOG.debug('adding edge')
+                    dot.edge(
+                        us_node.pretty_name,
+                        _inv_node(inv),
+                    )
 
         label = (
             f'{len(info.pairs)}, {_stack_diff(i1.ustack, i2.ustack)}\n' +
@@ -382,19 +408,38 @@ def dump_dot(dot, path):
 
 def analyze_syscalls(opts):
     trace = build_trace(opts.input_path)
+    LOG.debug('Trace built')
     tid, thread = max(
         trace.threads.items(),
         key=lambda kv: len(kv[1].invocations),
     )
-    dot = build_thread_graph(thread, draw_userspace=opts.draw_userspace)
+    LOG.debug('Working on thread %d', tid)
+
+    def span_pred(span_info):
+        if len(span_info.pairs) < 5000:
+            return False
+        # More than 100us apart?
+        if span_info.quantiles()[0] > 100000:
+            return False
+        return True
+
+    dot = build_thread_graph(
+        thread,
+        draw_userspace=opts.draw_userspace,
+        span_pred=span_pred,
+    )
+    LOG.debug('Graph constructed, dumping it')
+
     dump_dot(dot, '/tmp/res.png')
     for k, v in sorted(thread.userspace_spans.items()):
-        if len(v.pairs) < 1000:
+        if not span_pred(v):
             continue
         quantiles = v.quantiles()
-        if quantiles[0] > 100000:
-            continue
-        print(k, quantiles)
+        print(tuple(_inv_node(i) for i in v.pairs[0]))
+        print(quantiles)
+        print(v.pairs[0][0])
+        print(v.pairs[0][1])
+        print('')
 
 
 def main():
@@ -423,6 +468,7 @@ def main():
     )
     parser_syscalls.set_defaults(func=analyze_syscalls)
 
+    logging.basicConfig(level=logging.DEBUG)
     opts = parser.parse_args()
     opts.func(opts)
 
