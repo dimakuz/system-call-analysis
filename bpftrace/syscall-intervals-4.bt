@@ -1,0 +1,32 @@
+BEGIN
+{
+    printf("tbegin,dur,sysnr,tid,ustack\n");
+    @start = nsecs;
+    @stack_counter = 1;
+}
+
+tracepoint:raw_syscalls:sys_enter / uid == $1 / 
+{
+    @enter_nsecs[tid] = nsecs;
+}
+tracepoint:raw_syscalls:sys_exit / uid == $1 / 
+{
+    $enter_time = @enter_nsecs[tid];
+    if ($enter_time != 0) {
+        $stack_id = @ustacks[tid, ustack];
+        if ($stack_id == 0) {
+            $stack_id = @stack_counter;
+            @stack_counter = @stack_counter + 1;
+            @ustacks[tid, ustack] = $stack_id;
+        }
+        printf("%llx,%llx,%x,%x,%x\n",$enter_time - @start, nsecs - $enter_time, args->id, tid, $stack_id);
+    }
+}
+
+END {
+    printf("==== END =========\n");
+    clear(@enter_nsecs);
+    clear(@start);
+    clear(@stack_counter);
+    // clear(@ustacks);
+}

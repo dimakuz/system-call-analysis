@@ -13,10 +13,12 @@ dacite = "*"
 pyyaml = "*"
 pandas = "*"
 plotly = "*"
+graphviz = "*"
 
 [requires]
-python_version = "3.7"
+python_version = "3.8"
 
 [scripts]
 harness = "python -m harness.main"
+bpftrace = "python -c 'import harness.main; harness.main.produce_bpftrace_output()'"
 debug = "python -m ipdb harness/main.py"

@@ -13,12 +13,12 @@ tracepoint:raw_syscalls:sys_exit / uid == $1 /
     $enter_time = @enter_nsecs[tid];
     if ($enter_time != 0) {
         printf("%llx,%llx,%x,%x,%s\n",$enter_time - @start, nsecs - $enter_time, args->id, tid, comm);
-        //@calls[tid, args->id] = lhist((nsecs - @start) / 1000000000, 0, 20, 1);
+        @u[tid, args->id, ustack] = count();
     }
 }
 
 END {
     clear(@enter_nsecs);
     clear(@start);
-    //clear(@calls);
+    clear(@u);
 }

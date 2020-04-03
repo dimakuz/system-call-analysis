@@ -5,5 +5,11 @@ container:
   setup_commands:
     - pgbench -U postgres -s 100 -i
   test_commands:
-    - pgbench -U postgres -j 50 -T 5
-bpftrace_script: 'bpftrace/syscall-intervals-3.bt'
+    - pgbench -U postgres -j 10 -T 10
+tracers:
+  - bpftrace_script: 'bpftrace/syscall-intervals-4.bt'
+    output_filename: syscall-intervals
+    output_format: text
+  - bpftrace_script: 'bpftrace/syscall-ustacks.bt'
+    output_filename: ustacks
+    output_format: json

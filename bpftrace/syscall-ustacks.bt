@@ -1,0 +1,34 @@
+tracepoint:syscalls:sys_enter_sendto
+/ uid == $1 / 
+{
+    @ustacks_sendto[tid, ustack()] = count();
+}
+tracepoint:syscalls:sys_enter_recvfrom
+/ uid == $1 / 
+{
+    @ustacks_recvfrom[tid, ustack()] = count();
+}
+
+tracepoint:syscalls:sys_enter_epoll_wait
+/ uid == $1 / 
+{
+    @ustacks_epoll_wait[tid, ustack()] = count();
+}
+
+tracepoint:syscalls:sys_enter_lseek
+/ uid == $1 / 
+{
+    @ustacks_lseek[tid, ustack()] = count();
+}
+
+tracepoint:syscalls:sys_enter_pread64
+/ uid == $1 / 
+{
+    @ustacks_pread64[tid, ustack()] = count();
+}
+
+tracepoint:syscalls:sys_enter_fdatasync
+/ uid == $1 / 
+{
+    @ustacks_fdatasync[tid, ustack()] = count();
+}
