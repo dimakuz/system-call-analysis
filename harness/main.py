@@ -252,14 +252,14 @@ class Node:
             )
 
 
-def stack_graph(thread):
+def stack_graph(ustacks):
     nodes = {}
-    for stack in thread.ustacks.values():
+    for stack in ustacks:
         # print('->'.join(s[-5:] for s in stack))
         for frame in stack:
             nodes[frame] = Node([frame], set(), set())
 
-    for stack in thread.ustacks.values():
+    for stack in ustacks:
         for ftop, fbot in zip(stack, stack[1:]):
             nodes[ftop].in_edges.add(fbot)
             nodes[fbot].out_edges.add(ftop)
@@ -320,24 +320,32 @@ def _inv_node(inv):
 
 def build_thread_graph(thread, draw_userspace=True, span_pred=None):
     dot = graphviz.Digraph(strict=True)
-    nodes = stack_graph(thread)
-    LOG.debug('Constructed stack graph of size %d', len(nodes))
-    drawn_userspace = set()
 
     nr_spans = len(thread.userspace_spans)
     LOG.debug("Thread has %d spans", nr_spans)
-    for i, (((s1, u1), (s2, u2)), info) in enumerate(
-        thread.userspace_spans.items(),
-    ):
-        i1, i2 = info.pairs[0]
+    valid_spans = []
+    ustacks = set()
+    for info in thread.userspace_spans.values():
         if span_pred is not None and not span_pred(info):
             continue
+        valid_spans.append(info)
+        for inv in info.pairs[0]:
+            ustacks.add(inv.ustack)
+
+    LOG.debug("Thread has [%d/%d] valid spans", len(valid_spans), nr_spans)
+
+    nodes = stack_graph(ustacks)
+    LOG.debug('Constructed stack graph of size %d', len(nodes))
+    drawn_userspace = set()
+
+    for i, info in enumerate(valid_spans):
+        i1, i2 = info.pairs[0]
         quantiles = info.quantiles()
 
         LOG.debug(
             '[%d/%d] Processing span %r %r (%d)',
-            i + 1, nr_spans,
-            (s1, u1), (s2, u2), len(info.pairs),
+            i + 1, len(valid_spans),
+            i1.syscall_loc, i2.syscall_loc, len(info.pairs),
         )
 
         for inv in (i1, i2):
@@ -416,7 +424,7 @@ def analyze_syscalls(opts):
     LOG.debug('Working on thread %d', tid)
 
     def span_pred(span_info):
-        if len(span_info.pairs) < 5000:
+        if len(span_info.pairs) < 1000:
             return False
         # More than 100us apart?
         if span_info.quantiles()[0] > 100000:
