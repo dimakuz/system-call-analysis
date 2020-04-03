@@ -323,7 +323,7 @@ def build_thread_graph(thread, draw_userspace=True):
             median_duration = statistics.median(
                 i.duration_ns
                 for i in thread.invocations
-                if i.syscall == inv.syscall
+                if i.syscall_loc == inv.syscall_loc
             )
             label = (
                 _inv_node(inv) + '\n' +
