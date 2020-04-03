@@ -5,7 +5,7 @@ container:
   setup_commands:
     - pgbench -U postgres -s 100 -i
   test_commands:
-    - pgbench -U postgres -j 10 -T 10
+    - pgbench -U postgres -j 10 -c 10 -T 10
 tracers:
   - bpftrace_script: 'bpftrace/syscall-intervals-4.bt'
     output_filename: syscall-intervals

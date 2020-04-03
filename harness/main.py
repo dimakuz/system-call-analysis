@@ -350,7 +350,7 @@ def build_thread_graph(thread, draw_userspace=True):
                 )
 
         label = (
-            f'{_stack_diff(i1.ustack, i2.ustack)}\n' +
+            f'{len(info.pairs)}, {_stack_diff(i1.ustack, i2.ustack)}\n' +
             f'[{quantiles[0]}, {quantiles[3]}]'
         )
         dot.edge(
@@ -386,7 +386,7 @@ def analyze_syscalls(opts):
         trace.threads.items(),
         key=lambda kv: len(kv[1].invocations),
     )
-    dot = build_thread_graph(thread, draw_userspace=True)
+    dot = build_thread_graph(thread, draw_userspace=opts.draw_userspace)
     dump_dot(dot, '/tmp/res.png')
     for k, v in sorted(thread.userspace_spans.items()):
         if len(v.pairs) < 1000:
@@ -415,6 +415,12 @@ def main():
 
     parser_syscalls = subparsers.add_parser('analyze-syscalls')
     parser_syscalls.add_argument('input_path', type=pathlib.Path)
+    parser_syscalls.add_argument(
+        '--draw-userspace',
+        action='store_true',
+        dest='draw_userspace',
+        default=False,
+    )
     parser_syscalls.set_defaults(func=analyze_syscalls)
 
     opts = parser.parse_args()
