@@ -57,6 +57,16 @@ class SpanInfo:
             n=n,
         )
 
+    def mean_median(self):
+        intervals = tuple(
+            i1.userspace_after
+            for i1, _ in self.pairs
+        )
+        return (
+            statistics.mean(intervals),
+            statistics.median(intervals),
+        )
+
 
 @dataclasses.dataclass
 class ThreadTrace:

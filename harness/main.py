@@ -320,6 +320,7 @@ def _inv_node(inv):
 
 def build_thread_graph(thread, draw_userspace=True, span_pred=None):
     dot = graphviz.Digraph(strict=True)
+    draw_legend(dot)
 
     nr_spans = len(thread.userspace_spans)
     LOG.debug("Thread has %d spans", nr_spans)
@@ -340,7 +341,6 @@ def build_thread_graph(thread, draw_userspace=True, span_pred=None):
 
     for i, info in enumerate(valid_spans):
         i1, i2 = info.pairs[0]
-        quantiles = info.quantiles()
 
         LOG.debug(
             '[%d/%d] Processing span %r %r (%d)',
@@ -349,14 +349,16 @@ def build_thread_graph(thread, draw_userspace=True, span_pred=None):
         )
 
         for inv in (i1, i2):
-            median_duration = statistics.median(
+            durations = tuple(
                 i.duration_ns
                 for i in thread.invocations
                 if i.syscall_loc == inv.syscall_loc
             )
+            mean = statistics.mean(durations)
+            median = statistics.median(durations)
             label = (
                 _inv_node(inv) + '\n' +
-                f'{median_duration}'
+                f'[{mean / 1000:.2f}, {median / 1000:.2f}]'
             )
             dot.node(
                 _inv_node(inv),
@@ -382,10 +384,10 @@ def build_thread_graph(thread, draw_userspace=True, span_pred=None):
                         us_node.pretty_name,
                         _inv_node(inv),
                     )
-
+        mean, median = info.mean_median()
         label = (
             f'{len(info.pairs)}, {_stack_diff(i1.ustack, i2.ustack)}\n' +
-            f'[{quantiles[0]}, {quantiles[3]}]'
+            f'[{mean / 1000:.2f}, {median / 1000:.2f}]'
         )
         dot.edge(
             _inv_node(i1),
@@ -403,6 +405,47 @@ def build_thread_graph(thread, draw_userspace=True, span_pred=None):
                 dot.edge(tail.pretty_name, head.pretty_name)
 
     return dot
+
+
+def draw_legend(dot):
+    # Draw legend
+    dot.node(
+        'l0',
+        label='{{stack frame}}\naddr1'
+    )
+    dot.node(
+        'l1',
+        label=(
+            '{{Syscall invocation}}\n'
+            'syscall1-stack_ID\n'
+            'Duration in us: [mean, median]'
+        ),
+        fontcolor='red',
+    )
+    dot.node(
+        'l2',
+        label=(
+            '{{Another systcall invocation}}\n'
+            'syscall2-stack_ID\n'
+            'Duration in us: [mean, median]'
+        ),
+        fontcolor='red',
+    )
+    dot.edge(
+        'l0',
+        'l1',
+        label='Invocation of syscall1\nby stack frame addr1',
+    )
+    dot.edge(
+        'l1',
+        'l2',
+        style='dashed',
+        label=(
+            '{{syscall2 follows syscall1}}\n'
+            'Number of recorded events (stack distance)\n'
+            'Time between callls in us: [mean, median]'
+        )
+    )
 
 
 def dump_dot(dot, path):
@@ -426,8 +469,9 @@ def analyze_syscalls(opts):
     def span_pred(span_info):
         if len(span_info.pairs) < 1000:
             return False
-        # More than 100us apart?
-        if span_info.quantiles()[0] > 100000:
+        # More than 50us apart?
+        _, median = span_info.mean_median()
+        if median > 50000:
             return False
         return True
 
