@@ -5,11 +5,11 @@ BEGIN
     @stack_counter = 1;
 }
 
-tracepoint:raw_syscalls:sys_enter / uid == $1 / 
+tracepoint:raw_syscalls:sys_enter / comm == "postgres" && pid != -1 /
 {
     @enter_nsecs[tid] = nsecs;
 }
-tracepoint:raw_syscalls:sys_exit / uid == $1 / 
+tracepoint:raw_syscalls:sys_exit / comm == "postgres" && pid != -1 /
 {
     $enter_time = @enter_nsecs[tid];
     if ($enter_time != 0) {
@@ -18,8 +18,10 @@ tracepoint:raw_syscalls:sys_exit / uid == $1 /
             $stack_id = @stack_counter;
             @stack_counter = @stack_counter + 1;
             @ustacks[tid, ustack] = $stack_id;
+            printf("ustack: %d %d\n%s\nustackend\n", $stack_id, tid, ustack);
+            printf("\n\n\n");
         }
-        printf("%llx,%llx,%x,%x,%x\n",$enter_time - @start, nsecs - $enter_time, args->id, tid, $stack_id);
+        printf("i:%llx,%llx,%x,%x,%x,%s\n",$enter_time - @start, nsecs - $enter_time, args->id, tid, $stack_id,comm);
     }
 }
 
@@ -28,5 +30,6 @@ END {
     clear(@enter_nsecs);
     clear(@start);
     clear(@stack_counter);
+    clear(@ustacks);
     // clear(@ustacks);
 }

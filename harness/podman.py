@@ -14,7 +14,7 @@ LOG = logging.getLogger(__name__)
 def _podman(*args, check=True):
     command = tuple(
         str(s)
-        for s in (('podman',) + tuple(args))
+        for s in ('sudo', 'podman',) + tuple(args)
     )
     LOG.debug('Running command: %s', ' '.join(command))
     res = subprocess.run(
@@ -83,5 +83,6 @@ def top(name, *fields):
     return _podman(
         'top',
         name,
+        '-eo',
         *fields,
     )

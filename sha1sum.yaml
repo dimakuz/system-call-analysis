@@ -1,5 +1,5 @@
 container:
-  image: alpine
+  image: coreutils-debug:f31
   command:
     - sleep
     - 1d

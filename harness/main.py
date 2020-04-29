@@ -41,6 +41,9 @@ class Container:
     setup_commands: typing.List[str] = dataclasses.field(
         default_factory=list,
     )
+    post_commands: typing.List[str] = dataclasses.field(
+        default_factory=list,
+    )
 
 
 @dataclasses.dataclass
@@ -64,34 +67,47 @@ def discover_workload_uid(cont):
 
 
 def get_bfptrace_output(run_info, output_dir):
+    output_vol = (output_dir / 'vol').absolute()
+    output_vol.mkdir(exist_ok=True)
     with podman.running_container(
         run_info.container.image,
         env=run_info.container.env,
         command=run_info.container.command,
-        extra_args=run_info.container.extra_args,
+        extra_args=(
+            '-v', f'{output_vol}:/output:rw',
+        ) + tuple(run_info.container.extra_args or ()),
     ) as cont:
         # FIXME check that container is ready
         time.sleep(3)
         for command in run_info.container.setup_commands:
             podman.execute(cont, shlex.split(command))
-        uid = discover_workload_uid(cont)
+        # uid = discover_workload_uid(cont)
 
         # Start all tracers
         tracers = []
         for ti in run_info.tracers:
+            cmd = (
+                'sudo',
+                '-E',
+                'env',
+                'LD_LIBRARY_PATH=/home/dimak/projects/thesis/syscallets/bcc/build/src/cc',
+                '/home/dimak/projects/thesis/syscallets/ebpf/bpftrace/build/src/bpftrace',
+                '--unsafe',
+                '-f', ti.output_format,
+                '-o', (output_dir / ti.output_filename).absolute(),
+                pathlib.Path(ti.bpftrace_script).absolute(),
+                # str(uid),
+            )
+            LOG.debug('Running %s', cmd)
             tracers.append(
                 subprocess.Popen(
-                    (
-                        'sudo',
-                        '-E',
-                        'bpftrace',
-                        '-f', ti.output_format,
-                        '-o', output_dir / ti.output_filename,
-                        ti.bpftrace_script,
-                        str(uid)
-                    ),
+                    cmd,
                     preexec_fn=os.setpgrp,
-                    env={'BPFTRACE_MAP_KEYS_MAX': '8192'},
+                    env={
+                        'BPFTRACE_CACHE_USER_SYMBOLS': '1',
+                        'BPFTRACE_MAP_KEYS_MAX': '8192',
+                        'LD_LIBRARY_PATH': '/home/dimak/projects/thesis/syscallets/bcc/build/src/cc',
+                    },
                     # stderr=subprocess.DEVNULL,
                 ),
             )
@@ -105,6 +121,10 @@ def get_bfptrace_output(run_info, output_dir):
         subprocess.run(('sudo', 'pkill', 'bpftrace'), check=True)
         for p in tracers:
             p.wait()
+
+        for command in run_info.container.post_commands:
+            LOG.debug('Running post command: %s', command)
+            podman.execute(cont, shlex.split(command))
 
 
 def build_trace(path):
@@ -244,6 +264,8 @@ class Node:
             return self.value[0]
         elif len(self.value) == 2:
             return f'{self.value[0]}\n{self.value[1]}'
+        elif True:
+            return '\n'.join(self.value)
         else:
             return (
                 f'{self.value[0]}\n' +
@@ -332,6 +354,8 @@ def build_thread_graph(thread, draw_userspace=True, span_pred=None):
         valid_spans.append(info)
         for inv in info.pairs[0]:
             ustacks.add(inv.ustack)
+    if not valid_spans:
+        return
 
     LOG.debug("Thread has [%d/%d] valid spans", len(valid_spans), nr_spans)
 
@@ -357,7 +381,7 @@ def build_thread_graph(thread, draw_userspace=True, span_pred=None):
             mean = statistics.mean(durations)
             median = statistics.median(durations)
             label = (
-                _inv_node(inv) + '\n' +
+                _inv_node(inv) + f' (x{len(durations)})\n' +
                 f'[{mean / 1000:.2f}, {median / 1000:.2f}]'
             )
             dot.node(
@@ -460,38 +484,42 @@ def dump_dot(dot, path):
 def analyze_syscalls(opts):
     trace = build_trace(opts.input_path)
     LOG.debug('Trace built')
-    tid, thread = max(
-        trace.threads.items(),
-        key=lambda kv: len(kv[1].invocations),
-    )
-    LOG.debug('Working on thread %d', tid)
+    for tid, thread in trace.threads.items():
+        LOG.debug("%d: %d", tid, len(thread.invocations))
+        # tid, thread = max(
+        #     trace.threads.items(),
+        #     key=lambda kv: len(kv[1].invocations),
+        # )
+        LOG.debug('Working on thread %d', tid)
 
-    def span_pred(span_info):
-        if len(span_info.pairs) < 1000:
-            return False
-        # More than 50us apart?
-        _, median = span_info.mean_median()
-        if median > 50000:
-            return False
-        return True
+        def span_pred(span_info):
+            if len(span_info.pairs) < 1000:
+                return False
+            # More than 50us apart?
+            _, median = span_info.mean_median()
+            if median > 50000:
+                return False
+            return True
 
-    dot = build_thread_graph(
-        thread,
-        draw_userspace=opts.draw_userspace,
-        span_pred=span_pred,
-    )
-    LOG.debug('Graph constructed, dumping it')
-
-    dump_dot(dot, '/tmp/res.png')
-    for k, v in sorted(thread.userspace_spans.items()):
-        if not span_pred(v):
+        dot = build_thread_graph(
+            thread,
+            draw_userspace=opts.draw_userspace,
+            span_pred=span_pred,
+        )
+        if not dot:
             continue
-        quantiles = v.quantiles()
-        print(tuple(_inv_node(i) for i in v.pairs[0]))
-        print(quantiles)
-        print(v.pairs[0][0])
-        print(v.pairs[0][1])
-        print('')
+        LOG.debug('Graph constructed, dumping it')
+
+        dump_dot(dot, f'/tmp/res.{tid}.png')
+        # for k, v in sorted(thread.userspace_spans.items()):
+        #     if not span_pred(v):
+        #         continue
+        #     quantiles = v.quantiles()
+        #     print(tuple(_inv_node(i) for i in v.pairs[0]))
+        #     print(quantiles)
+        #     print(v.pairs[0][0])
+        #     print(v.pairs[0][1])
+        #     print('')
 
 
 def main():

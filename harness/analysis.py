@@ -1,4 +1,5 @@
 import dataclasses
+import logging
 import re
 import statistics
 import typing
@@ -6,6 +7,7 @@ import typing
 from harness import syscall_info
 
 _SYSCALLS = {}
+LOG = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -119,19 +121,14 @@ def build_trace(f):
 
     def _to_row(line):
         line = line.strip()
-        return dict(zip(headers, (int(e, 16) for e in line.split(','))))
+        return dict(zip(headers, (int(e, 16) for e in line.split(',')[:-1])))
 
-    for row in f:
-        if not row.strip():
-            continue
-        if row.startswith('===='):
-            break
-
+    def _add_invocation(row):
         row = _to_row(row)
         try:
             sc = Syscall.from_nr(row['sysnr'])
         except KeyError:
-            continue
+            return
         sci = SyscallInvocation(
             syscall=sc,
             start_ns=row['tbegin'],
@@ -141,15 +138,31 @@ def build_trace(f):
         tid = row['tid']
         trace.threads.setdefault(tid, ThreadTrace()).invocations.append(sci)
 
-    for tid, stack, stack_id in re.findall(
-        r'@ustacks\[(\d+),([^\]]*)\]: (\d+)',
-        f.read(),
-        re.M
-    ):
-        tid = int(tid)
-        stack = tuple(l.strip() for l in stack.split())
-        stack_id = int(stack_id)
-        trace.threads[tid].ustacks[stack_id] = stack
+    def _add_ustack(stack_id, tid):
+        LOG.debug('ustack %d', stack_id)
+        stack = []
+        for row in f:
+            row = row.strip()
+            if not row:
+                continue
+            if row == 'ustackend':
+                break
+            stack.append(row)
+        LOG.debug('%r', stack)
+        trace.threads.setdefault(tid, ThreadTrace()).ustacks[stack_id] = tuple(stack)
+
+
+    for row in f:
+        if not row.strip():
+            continue
+        if row.startswith('i:'):
+            _add_invocation(row[2:])
+        if row.startswith('ustack:'):
+            _, nr, tid = row.strip().split()
+            nr = int(nr)
+            tid = int(tid)
+            _add_ustack(nr, tid)
+
 
     for tid, thread in trace.threads.items():
         for inv in thread.invocations:
