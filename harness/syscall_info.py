@@ -345,4 +345,7 @@ syscall_map = {
 
 
 def from_nr(nr):
-    return syscall_map[nr]
+    try:
+        return syscall_map[nr]
+    except KeyError:
+        return f'__sys_nr_{nr}'

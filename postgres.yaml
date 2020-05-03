@@ -7,8 +7,6 @@ container:
   test_commands:
     - pgbench -U postgres -j 1 -c 1 -T 20
   # post_commands:
-  #   - pgbench -U postgres -j 1 -c 1 -T 300
-  # post_commands:
   #   - cp -avp /usr/lib/debug/.build-id /output/debug-build-id
   #   - cp /proc/1/maps /output/maps
   extra_args:

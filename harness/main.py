@@ -20,6 +20,7 @@ from plotly import graph_objects
 import yaml
 
 from harness import analysis
+from harness import graphanalysis
 from harness import podman
 
 LOG = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ def get_bfptrace_output(run_info, output_dir):
                 '-E',
                 'env',
                 'LD_LIBRARY_PATH=/home/dimak/projects/thesis/syscallets/bcc/build/src/cc',
+                'BPFTRACE_SHOW_USER_MODULE=1',
                 '/home/dimak/projects/thesis/syscallets/ebpf/bpftrace/build/src/bpftrace',
                 '--unsafe',
                 '-f', ti.output_format,
@@ -522,6 +524,51 @@ def analyze_syscalls(opts):
         #     print('')
 
 
+def build_call_graph(opts):
+    trace = build_trace(opts.input_path)
+    cg = graphanalysis.CallGraph()
+    LOG.debug('Trace built')
+    tid, thread = max(
+        trace.threads.items(),
+        key=lambda kv: len(kv[1].invocations),
+    )
+    # for tid, thread in trace.threads.items():
+    for inv in thread.invocations:
+        cg.add_stack_trace(inv.ustack2, 1)
+    dump_dot(cg.to_dot(), f'/tmp/rescg.png')
+
+
+@dataclasses.dataclass
+class _SAResult:
+    frm: int
+    to: int
+    ratio: float
+    syscalls: int
+
+def span_analysis(opts):
+    trace = build_trace(opts.input_path)
+    LOG.debug('Trace built')
+    tid, thread = max(
+        trace.threads.items(),
+        key=lambda kv: len(kv[1].invocations),
+    )
+    for i in range(len(thread.invocations)):
+        LOG.debug(f'[{i+1}/{len(thread.invocations)}]')
+        for j in range(i + 1, min(i + 100, len(thread.invocations))):
+            invs = thread.invocations[i:j]
+            r = _SAResult(
+                i,
+                j,
+                (
+                    sum(i.duration_ns for i in invs)
+                    /
+                    (invs[-1].end_ns + invs[-1].userspace_after - invs[0].start_ns)
+                ),
+                j-i,
+            )
+            print(r)
+
+
 def main():
     parser = argparse.ArgumentParser(sys.argv[0])
     subparsers = parser.add_subparsers()
@@ -547,6 +594,14 @@ def main():
         default=False,
     )
     parser_syscalls.set_defaults(func=analyze_syscalls)
+
+    parser_syscalls = subparsers.add_parser('build-call-graph')
+    parser_syscalls.add_argument('input_path', type=pathlib.Path)
+    parser_syscalls.set_defaults(func=build_call_graph)
+
+    parser_syscalls = subparsers.add_parser('span-analysis')
+    parser_syscalls.add_argument('input_path', type=pathlib.Path)
+    parser_syscalls.set_defaults(func=span_analysis)
 
     logging.basicConfig(level=logging.DEBUG)
     opts = parser.parse_args()
